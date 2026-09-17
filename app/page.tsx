@@ -1,9 +1,52 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Language = "en" | "ne";
+
+type BillItem = {
+  id: number;
+  name: string;
+  qty: number;
+  price: number;
+};
+
+type PrescriptionItem = {
+  id: number;
+  medicine: string;
+  dose: string;
+  frequency: string;
+  days: number;
+  instruction: string;
+};
+
+type DentalRecord = {
+  id: number;
+  billNo: string;
+  date: string;
+
+  patientName: string;
+  address: string;
+  phone: string;
+  doctor: string;
+  diagnosis: string;
+  treatmentNotes: string;
+
+  checkupFee: number;
+  treatmentItems: BillItem[];
+  medicineItems: BillItem[];
+
+  discount: number;
+  paid: number;
+  paymentMethod: string;
+
+  prescription: PrescriptionItem[];
+
+  subtotal: number;
+  total: number;
+  due: number;
+};
 
 type ClinicSettings = {
   clinicName: string;
@@ -22,63 +65,127 @@ const defaultSettings: ClinicSettings = {
   phone: "98XXXXXXXX",
   address: "Kusma, Parbat, Nepal",
   doctorName: "Dr. Dental",
-  dashboardTitle: "Welcome to Parbat Dental",
-
-  // Demo images
+  dashboardTitle: "Parbat Dental",
   logo: "/logo.png",
   paymentQR: "/qr.png",
-
   receiptTitle: "Parbat Dental - Payment Receipt",
   receiptFooter: "Thank you for visiting us.",
 };
 
+const emptyItem = (): BillItem => ({
+  id: Date.now() + Math.random(),
+  name: "",
+  qty: 1,
+  price: 0,
+});
+
+const emptyPrescription = (): PrescriptionItem => ({
+  id: Date.now() + Math.random(),
+  medicine: "",
+  dose: "",
+  frequency: "",
+  days: 1,
+  instruction: "",
+});
+
 export default function Home() {
   const router = useRouter();
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-
   const [loggedIn, setLoggedIn] = useState(false);
-
-  const [language, setLanguage] =
-    useState<Language>("en");
-
   const [mounted, setMounted] = useState(false);
 
+  const [language, setLanguage] = useState<Language>("en");
   const [settings, setSettings] =
     useState<ClinicSettings>(defaultSettings);
 
-  const isNepali = language === "ne";
+  const [records, setRecords] = useState<DentalRecord[]>([]);
 
-  /* =========================
-     LOAD DATA
-  ========================== */
+  const [patientName, setPatientName] = useState("");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [doctor, setDoctor] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [treatmentNotes, setTreatmentNotes] = useState("");
+
+  const [checkupFee, setCheckupFee] = useState(0);
+  const [treatmentItems, setTreatmentItems] = useState<BillItem[]>([
+    emptyItem(),
+  ]);
+  const [medicineItems, setMedicineItems] = useState<BillItem[]>([
+    emptyItem(),
+  ]);
+
+  const [discount, setDiscount] = useState(0);
+  const [paid, setPaid] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+
+  const [prescription, setPrescription] = useState<
+    PrescriptionItem[]
+  >([emptyPrescription()]);
+
+  const [search, setSearch] = useState("");
+  const [message, setMessage] = useState("");
+
+  const [printRecord, setPrintRecord] = useState<DentalRecord | null>(
+    null
+  );
+  const [printType, setPrintType] = useState<"bill" | "prescription" | null>(
+    null
+  );
 
   useEffect(() => {
     setMounted(true);
 
-    // Login
-    const savedLogin = localStorage.getItem(
-      "parbatDentalLoggedIn"
-    );
-
-    if (savedLogin === "true") {
+    const login = localStorage.getItem("parbatDentalLoggedIn");
+    if (login === "true") {
       setLoggedIn(true);
     }
 
-    // Language
     const savedLanguage = localStorage.getItem(
       "parbatDentalLanguage"
-    );
+    ) as Language | null;
 
-    if (
-      savedLanguage === "en" ||
-      savedLanguage === "ne"
-    ) {
+    if (savedLanguage === "ne" || savedLanguage === "en") {
       setLanguage(savedLanguage);
     }
 
-    // Clinic settings
+    const savedSettings = localStorage.getItem(
+      "parbatDentalSettings"
+    );
+
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setSettings({
+          ...defaultSettings,
+          ...parsed,
+        });
+      } catch {}
+    }
+
+    const savedRecords = localStorage.getItem("parbatDentalBills");
+
+    if (savedRecords) {
+      try {
+        setRecords(JSON.parse(savedRecords));
+      } catch {
+        setRecords([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    localStorage.setItem(
+      "parbatDentalLanguage",
+      language
+    );
+  }, [language, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
     const savedSettings = localStorage.getItem(
       "parbatDentalSettings"
     );
@@ -90,1225 +197,1946 @@ export default function Home() {
         setSettings({
           ...defaultSettings,
           ...parsed,
-
-          // If old settings have no logo/QR,
-          // use demo images.
-          logo:
-            parsed.logo || defaultSettings.logo,
-
-          paymentQR:
-            parsed.paymentQR ||
-            defaultSettings.paymentQR,
         });
-      } catch {
-        setSettings(defaultSettings);
-      }
+
+        setDoctor(parsed.doctorName || defaultSettings.doctorName);
+      } catch {}
+    } else {
+      setDoctor(defaultSettings.doctorName);
     }
-  }, []);
+  }, [mounted]);
 
-  /* =========================
-     LANGUAGE
-  ========================== */
-
-  const changeLanguage = (lang: Language) => {
-    setLanguage(lang);
+  useEffect(() => {
+    if (!mounted) return;
 
     localStorage.setItem(
-      "parbatDentalLanguage",
-      lang
+      "parbatDentalBills",
+      JSON.stringify(records)
     );
-  };
+  }, [records, mounted]);
 
-  /* =========================
-     LOGIN
-  ========================== */
+  useEffect(() => {
+    if (!printRecord || !printType) return;
 
-  const handleLogin = (
-    e: FormEvent<HTMLFormElement>
-  ) => {
+    const timer = setTimeout(() => {
+      window.print();
+    }, 150);
+
+    const afterPrint = () => {
+      setPrintRecord(null);
+      setPrintType(null);
+    };
+
+    window.addEventListener("afterprint", afterPrint);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("afterprint", afterPrint);
+    };
+  }, [printRecord, printType]);
+
+  const treatmentTotal = useMemo(() => {
+    return treatmentItems.reduce(
+      (sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0),
+      0
+    );
+  }, [treatmentItems]);
+
+  const medicineTotal = useMemo(() => {
+    return medicineItems.reduce(
+      (sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0),
+      0
+    );
+  }, [medicineItems]);
+
+  const subtotal = useMemo(() => {
+    return Number(checkupFee || 0) + treatmentTotal + medicineTotal;
+  }, [checkupFee, treatmentTotal, medicineTotal]);
+
+  const total = Math.max(
+    subtotal - Number(discount || 0),
+    0
+  );
+
+  const due = Math.max(
+    total - Number(paid || 0),
+    0
+  );
+
+  const filteredRecords = records.filter((record) => {
+    const text = `
+      ${record.patientName}
+      ${record.phone}
+      ${record.billNo}
+      ${record.doctor}
+    `.toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
+
+  function login(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    const cleanUsername =
-      username.trim();
+    const form = new FormData(e.currentTarget);
 
-    const cleanPassword =
-      password.trim();
+    const username = String(form.get("username") || "");
+    const password = String(form.get("password") || "");
 
-    if (
-      cleanUsername === "admin" &&
-      cleanPassword === "1234"
-    ) {
+    if (username === "admin" && password === "1234") {
       localStorage.setItem(
         "parbatDentalLoggedIn",
         "true"
       );
 
       setLoggedIn(true);
+      setMessage("");
     } else {
-      alert(
-        isNepali
-          ? "प्रयोगकर्ता नाम वा पासवर्ड गलत छ।"
-          : "Username or password is incorrect."
+      setMessage(
+        language === "ne"
+          ? "Username वा password गलत छ।"
+          : "Incorrect username or password."
       );
     }
-  };
+  }
 
-  /* =========================
-     LOGOUT
-  ========================== */
+  function logout() {
+    localStorage.removeItem("parbatDentalLoggedIn");
+    setLoggedIn(false);
+  }
 
-  const handleLogout = () => {
-    localStorage.removeItem(
-      "parbatDentalLoggedIn"
+  function addTreatment() {
+    setTreatmentItems((items) => [
+      ...items,
+      emptyItem(),
+    ]);
+  }
+
+  function addMedicine() {
+    setMedicineItems((items) => [
+      ...items,
+      emptyItem(),
+    ]);
+  }
+
+  function addPrescription() {
+    setPrescription((items) => [
+      ...items,
+      emptyPrescription(),
+    ]);
+  }
+
+  function updateTreatment(
+    id: number,
+    field: keyof BillItem,
+    value: string | number
+  ) {
+    setTreatmentItems((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]:
+                field === "qty" || field === "price"
+                  ? Number(value)
+                  : value,
+            }
+          : item
+      )
+    );
+  }
+
+  function updateMedicine(
+    id: number,
+    field: keyof BillItem,
+    value: string | number
+  ) {
+    setMedicineItems((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]:
+                field === "qty" || field === "price"
+                  ? Number(value)
+                  : value,
+            }
+          : item
+      )
+    );
+  }
+
+  function updatePrescription(
+    id: number,
+    field: keyof PrescriptionItem,
+    value: string | number
+  ) {
+    setPrescription((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]:
+                field === "days"
+                  ? Number(value)
+                  : value,
+            }
+          : item
+      )
+    );
+  }
+
+  function removeTreatment(id: number) {
+    setTreatmentItems((items) =>
+      items.length === 1
+        ? items
+        : items.filter((item) => item.id !== id)
+    );
+  }
+
+  function removeMedicine(id: number) {
+    setMedicineItems((items) =>
+      items.length === 1
+        ? items
+        : items.filter((item) => item.id !== id)
+    );
+  }
+
+  function removePrescription(id: number) {
+    setPrescription((items) =>
+      items.length === 1
+        ? items
+        : items.filter((item) => item.id !== id)
+    );
+  }
+
+  function createCurrentRecord(): DentalRecord {
+    const now = new Date();
+
+    const billNo =
+      "PD-" +
+      now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0") +
+      "-" +
+      String(now.getHours()).padStart(2, "0") +
+      String(now.getMinutes()).padStart(2, "0") +
+      String(now.getSeconds()).padStart(2, "0");
+
+    return {
+      id: Date.now(),
+
+      billNo,
+      date: now.toLocaleString(),
+
+      patientName: patientName.trim(),
+      address: address.trim(),
+      phone: phone.trim(),
+      doctor: doctor.trim() || settings.doctorName,
+      diagnosis: diagnosis.trim(),
+      treatmentNotes: treatmentNotes.trim(),
+
+      checkupFee: Number(checkupFee || 0),
+
+      treatmentItems: treatmentItems.filter(
+        (item) => item.name.trim() !== ""
+      ),
+
+      medicineItems: medicineItems.filter(
+        (item) => item.name.trim() !== ""
+      ),
+
+      discount: Number(discount || 0),
+      paid: Number(paid || 0),
+      paymentMethod,
+
+      prescription: prescription.filter(
+        (item) => item.medicine.trim() !== ""
+      ),
+
+      subtotal,
+      total,
+      due,
+    };
+  }
+
+  function saveBill() {
+    if (!patientName.trim()) {
+      setMessage(
+        language === "ne"
+          ? "कृपया बिरामीको नाम राख्नुहोस्।"
+          : "Please enter patient name."
+      );
+      return null;
+    }
+
+    const record = createCurrentRecord();
+
+    setRecords((old) => [
+      record,
+      ...old,
+    ]);
+
+    setMessage(
+      language === "ne"
+        ? `Bill ${record.billNo} save भयो।`
+        : `Bill ${record.billNo} saved successfully.`
     );
 
-    setLoggedIn(false);
-    setUsername("");
-    setPassword("");
-  };
+    return record;
+  }
 
-  /* =========================
-     LOADING
-  ========================== */
+  function saveAndPrintBill() {
+    const record = saveBill();
+
+    if (!record) return;
+
+    setPrintRecord(record);
+    setPrintType("bill");
+  }
+
+  function printCurrentBill() {
+    if (!patientName.trim()) {
+      setMessage(
+        language === "ne"
+          ? "पहिला बिरामीको नाम राख्नुहोस्।"
+          : "Enter patient name first."
+      );
+      return;
+    }
+
+    const record = createCurrentRecord();
+
+    setPrintRecord(record);
+    setPrintType("bill");
+  }
+
+  function printCurrentPrescription() {
+    if (!patientName.trim()) {
+      setMessage(
+        language === "ne"
+          ? "पहिला बिरामीको नाम राख्नुहोस्।"
+          : "Enter patient name first."
+      );
+      return;
+    }
+
+    const record = createCurrentRecord();
+
+    setPrintRecord(record);
+    setPrintType("prescription");
+  }
+
+  function loadRecord(record: DentalRecord) {
+    setPatientName(record.patientName);
+    setAddress(record.address);
+    setPhone(record.phone);
+    setDoctor(record.doctor);
+    setDiagnosis(record.diagnosis);
+    setTreatmentNotes(record.treatmentNotes);
+
+    setCheckupFee(record.checkupFee);
+
+    setTreatmentItems(
+      record.treatmentItems.length
+        ? record.treatmentItems
+        : [emptyItem()]
+    );
+
+    setMedicineItems(
+      record.medicineItems.length
+        ? record.medicineItems
+        : [emptyItem()]
+    );
+
+    setDiscount(record.discount);
+    setPaid(record.paid);
+    setPaymentMethod(record.paymentMethod);
+
+    setPrescription(
+      record.prescription.length
+        ? record.prescription
+        : [emptyPrescription()]
+    );
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+
+    setMessage(
+      language === "ne"
+        ? `${record.patientName} को record खोलियो।`
+        : `${record.patientName}'s record loaded.`
+    );
+  }
+
+  function newBill() {
+    setPatientName("");
+    setAddress("");
+    setPhone("");
+    setDoctor(settings.doctorName);
+    setDiagnosis("");
+    setTreatmentNotes("");
+
+    setCheckupFee(0);
+    setTreatmentItems([emptyItem()]);
+    setMedicineItems([emptyItem()]);
+
+    setDiscount(0);
+    setPaid(0);
+    setPaymentMethod("Cash");
+
+    setPrescription([emptyPrescription()]);
+
+    setMessage("");
+  }
+
+  function money(value: number) {
+    return `Rs. ${Number(value || 0).toLocaleString()}`;
+  }
 
   if (!mounted) {
     return (
-      <main className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <div className="text-blue-600 font-semibold">
-          Loading...
-        </div>
-      </main>
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        Loading...
+      </div>
     );
   }
-
-  /* =====================================================
-     LOGIN PAGE
-  ====================================================== */
 
   if (!loggedIn) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-blue-100 flex items-center justify-center px-4 py-8">
+      <main className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8">
+          <div className="text-center mb-8">
+            <img
+              src={settings.logo || "/logo.png"}
+              alt="Logo"
+              className="mx-auto h-20 w-20 object-contain mb-4"
+            />
 
-        {/* LANGUAGE */}
-        <div className="absolute top-6 right-6">
+            <h1 className="text-3xl font-bold text-slate-900">
+              {settings.clinicName}
+            </h1>
 
-          <div className="bg-white shadow-md rounded-xl p-1 flex">
-
-            <button
-              onClick={() =>
-                changeLanguage("en")
-              }
-              className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                language === "en"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-600"
-              }`}
-            >
-              English
-            </button>
-
-            <button
-              onClick={() =>
-                changeLanguage("ne")
-              }
-              className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                language === "ne"
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-600"
-              }`}
-            >
-              नेपाली
-            </button>
-
-          </div>
-
-        </div>
-
-        <div className="w-full max-w-md">
-
-          <div className="bg-white rounded-3xl shadow-2xl p-7 md:p-10 border border-blue-50">
-
-            {/* LOGO */}
-
-            <div className="text-center">
-
-              <div className="mx-auto w-24 h-24 bg-blue-50 rounded-3xl flex items-center justify-center shadow-sm overflow-hidden">
-
-                <img
-                  src={settings.logo}
-                  alt="Clinic Logo"
-                  className="w-full h-full object-contain p-2"
-                />
-
-              </div>
-
-              <h1 className="text-3xl font-extrabold text-blue-700 mt-5">
-                {settings.clinicName}
-              </h1>
-
-              <p className="text-gray-500 mt-2">
-                {isNepali
-                  ? "दन्त चिकित्सा व्यवस्थापन प्रणाली"
-                  : "Dental Clinic Management System"}
-              </p>
-
-            </div>
-
-            {/* LOGIN FORM */}
-
-            <form
-              onSubmit={handleLogin}
-              className="mt-8 space-y-5"
-            >
-
-              {/* USERNAME */}
-
-              <div>
-
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  {isNepali
-                    ? "प्रयोगकर्ता नाम"
-                    : "Username"}
-                </label>
-
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) =>
-                    setUsername(e.target.value)
-                  }
-                  placeholder={
-                    isNepali
-                      ? "प्रयोगकर्ता नाम"
-                      : "Username"
-                  }
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-
-              </div>
-
-              {/* PASSWORD */}
-
-              <div>
-
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  {isNepali
-                    ? "पासवर्ड"
-                    : "Password"}
-                </label>
-
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) =>
-                    setPassword(e.target.value)
-                  }
-                  placeholder={
-                    isNepali
-                      ? "पासवर्ड"
-                      : "Password"
-                  }
-                  autoComplete="current-password"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold transition shadow-lg"
-              >
-                {isNepali
-                  ? "लगइन गर्नुहोस्"
-                  : "Login"}
-              </button>
-
-            </form>
-
-            <p className="text-center text-xs text-gray-400 mt-7">
-              {settings.clinicName} • Clinic Management System
+            <p className="text-slate-500 mt-2">
+              Dental Clinic Management System
             </p>
 
+            <div className="flex justify-center mt-5">
+              <button
+                type="button"
+                onClick={() =>
+                  setLanguage(
+                    language === "en" ? "ne" : "en"
+                  )
+                }
+                className="px-4 py-2 rounded-full bg-slate-100 text-slate-800 font-semibold"
+              >
+                {language === "en"
+                  ? "नेपाली"
+                  : "English"}
+              </button>
+            </div>
           </div>
 
-        </div>
+          <form
+            onSubmit={login}
+            className="space-y-5"
+          >
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Username
+              </label>
 
+              <input
+                name="username"
+                type="text"
+                autoComplete="username"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="admin"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Password
+              </label>
+
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="1234"
+              />
+            </div>
+
+            {message && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
+                {message}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-bold"
+            >
+              Login
+            </button>
+
+            <p className="text-center text-xs text-slate-400">
+              Demo Login: admin / 1234
+            </p>
+          </form>
+        </div>
       </main>
     );
   }
 
-  /* =====================================================
-     DASHBOARD
-  ====================================================== */
-
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-cyan-50">
-
-      {/* =================================================
-          TOP NAVBAR
-      ================================================== */}
-
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-blue-100 shadow-sm">
-
-        <div className="px-4 md:px-7 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
-          {/* BRAND */}
-
-          <div className="flex items-center gap-4">
-
-            {/* LOGO */}
-
-            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg border border-blue-100 overflow-hidden">
-
+    <>
+      <main className="min-h-screen bg-slate-100 text-slate-900">
+        {/* NAVBAR */}
+        <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <img
-                src={settings.logo}
-                alt="Clinic Logo"
-                className="w-full h-full object-contain p-1"
+                src={settings.logo || "/logo.png"}
+                alt="Logo"
+                className="h-11 w-11 object-contain"
               />
-
-            </div>
-
-            {/* CLINIC NAME */}
-
-            <div>
-
-              <h1 className="text-xl md:text-2xl font-extrabold text-blue-700">
-                {settings.clinicName}
-              </h1>
-
-              <p className="text-xs md:text-sm text-gray-500">
-                {isNepali
-                  ? "दन्त चिकित्सा व्यवस्थापन प्रणाली"
-                  : "Dental Clinic Management System"}
-              </p>
-
-            </div>
-
-          </div>
-
-          {/* NAV BUTTONS */}
-
-          <div className="flex items-center gap-2 flex-wrap">
-
-            {/* LANGUAGE */}
-
-            <div className="flex bg-gray-100 rounded-xl p-1">
-
-              <button
-                onClick={() =>
-                  changeLanguage("en")
-                }
-                className={`px-3 py-2 rounded-lg text-sm font-semibold ${
-                  language === "en"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600"
-                }`}
-              >
-                EN
-              </button>
-
-              <button
-                onClick={() =>
-                  changeLanguage("ne")
-                }
-                className={`px-3 py-2 rounded-lg text-sm font-semibold ${
-                  language === "ne"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600"
-                }`}
-              >
-                नेपाली
-              </button>
-
-            </div>
-
-            {/* SETTINGS */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/settings")
-              }
-              className="px-4 py-2 rounded-xl bg-blue-50 text-blue-700 font-semibold hover:bg-blue-100 transition"
-            >
-              ⚙️{" "}
-              {isNepali
-                ? "सेटिङ"
-                : "Settings"}
-            </button>
-
-            {/* LOGOUT */}
-
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 rounded-xl bg-red-50 text-red-600 font-semibold hover:bg-red-100"
-            >
-              {isNepali
-                ? "लगआउट"
-                : "Logout"}
-            </button>
-
-          </div>
-
-        </div>
-
-      </header>
-
-      {/* =================================================
-          MAIN
-      ================================================== */}
-
-      <div className="p-4 md:p-7 max-w-[1600px] mx-auto">
-
-        {/* WELCOME */}
-
-        <div className="mb-6">
-
-          <p className="text-blue-600 font-semibold">
-            {isNepali
-              ? "स्वागत छ 👋"
-              : "Welcome back 👋"}
-          </p>
-
-          <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">
-            {isNepali
-              ? "ड्यासबोर्ड"
-              : "Dashboard"}
-          </h2>
-
-          <p className="text-gray-500 mt-1">
-            {settings.dashboardTitle}
-          </p>
-
-        </div>
-
-        {/* =================================================
-            CLINIC INFORMATION
-        ================================================== */}
-
-        <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-
-          <div>
-
-            <p className="text-sm text-gray-500">
-              {isNepali
-                ? "क्लिनिक"
-                : "Clinic"}
-            </p>
-
-            <p className="font-bold text-gray-800">
-              {settings.clinicName}
-            </p>
-
-          </div>
-
-          <div>
-
-            <p className="text-sm text-gray-500">
-              {isNepali
-                ? "डाक्टर"
-                : "Doctor"}
-            </p>
-
-            <p className="font-bold text-gray-800">
-              {settings.doctorName}
-            </p>
-
-          </div>
-
-          <div>
-
-            <p className="text-sm text-gray-500">
-              {isNepali
-                ? "फोन"
-                : "Phone"}
-            </p>
-
-            <p className="font-bold text-gray-800">
-              {settings.phone}
-            </p>
-
-          </div>
-
-          <div>
-
-            <p className="text-sm text-gray-500">
-              {isNepali
-                ? "ठेगाना"
-                : "Address"}
-            </p>
-
-            <p className="font-bold text-gray-800">
-              {settings.address}
-            </p>
-
-          </div>
-
-        </div>
-
-        {/* =================================================
-            HERO
-        ================================================== */}
-
-        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-500 text-white shadow-xl">
-
-          <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full" />
-
-          <div className="absolute -right-20 -bottom-32 w-80 h-80 bg-white/10 rounded-full" />
-
-          <div className="relative p-6 md:p-9">
-
-            <div className="max-w-2xl">
-
-              <p className="text-blue-100 font-semibold">
-                {settings.clinicName.toUpperCase()}
-              </p>
-
-              <h3 className="text-3xl md:text-4xl font-extrabold mt-2">
-                {isNepali
-                  ? "स्वस्थ मुस्कान, राम्रो जीवन 🦷"
-                  : "Healthy Smile, Better Life 🦷"}
-              </h3>
-
-              <p className="text-blue-100 mt-3 max-w-xl">
-                {isNepali
-                  ? "बिरामी, अपोइन्टमेन्ट, उपचार र बिलिङलाई सजिलो र व्यवस्थित रूपमा व्यवस्थापन गर्नुहोस्।"
-                  : "Manage patients, appointments, treatments and billing easily from one professional system."}
-              </p>
-
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-7">
-
-              <HeroStat
-                title={
-                  isNepali
-                    ? "कुल बिरामी"
-                    : "Patients"
-                }
-                value="128"
-              />
-
-              <HeroStat
-                title={
-                  isNepali
-                    ? "आजका अपोइन्टमेन्ट"
-                    : "Appointments"
-                }
-                value="14"
-              />
-
-              <HeroStat
-                title={
-                  isNepali
-                    ? "आजको आम्दानी"
-                    : "Revenue"
-                }
-                value="25K"
-              />
-
-              <HeroStat
-                title={
-                  isNepali
-                    ? "डाक्टरहरू"
-                    : "Doctors"
-                }
-                value="4"
-              />
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* =================================================
-            STAT CARDS
-        ================================================== */}
-
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-7">
-
-          <DashboardCard
-            title={
-              isNepali
-                ? "आजका बिरामी"
-                : "Today's Patients"
-            }
-            value="24"
-            icon="👥"
-            bg="bg-blue-50"
-            iconBg="bg-blue-100"
-            iconColor="text-blue-600"
-            onClick={() =>
-              router.push(
-                "/patients?today=true"
-              )
-            }
-          />
-
-          <DashboardCard
-            title={
-              isNepali
-                ? "डाक्टरहरू"
-                : "Doctors"
-            }
-            value="4"
-            icon="👨‍⚕️"
-            bg="bg-emerald-50"
-            iconBg="bg-emerald-100"
-            iconColor="text-emerald-600"
-            onClick={() =>
-              router.push("/doctors")
-            }
-          />
-
-          <DashboardCard
-            title={
-              isNepali
-                ? "अपोइन्टमेन्ट"
-                : "Appointments"
-            }
-            value="14"
-            icon="📅"
-            bg="bg-purple-50"
-            iconBg="bg-purple-100"
-            iconColor="text-purple-600"
-          />
-
-          <DashboardCard
-            title={
-              isNepali
-                ? "आजको संकलन"
-                : "Today's Collection"
-            }
-            value="NPR 25K"
-            icon="💰"
-            bg="bg-orange-50"
-            iconBg="bg-orange-100"
-            iconColor="text-orange-600"
-          />
-
-        </section>
-
-        {/* =================================================
-            QUICK ACTIONS
-        ================================================== */}
-
-        <section className="mt-8">
-
-          <h3 className="text-xl font-extrabold text-gray-900">
-            {isNepali
-              ? "छिटो कार्यहरू"
-              : "Quick Actions"}
-          </h3>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-
-            <QuickAction
-              icon="➕"
-              title={
-                isNepali
-                  ? "नयाँ बिरामी"
-                  : "New Patient"
-              }
-              bg="bg-blue-50"
-              onClick={() =>
-                router.push("/patients")
-              }
-            />
-
-            <QuickAction
-              icon="📅"
-              title={
-                isNepali
-                  ? "अपोइन्टमेन्ट"
-                  : "Appointment"
-              }
-              bg="bg-emerald-50"
-            />
-
-            <QuickAction
-              icon="👨‍⚕️"
-              title={
-                isNepali
-                  ? "डाक्टरहरू"
-                  : "Doctors"
-              }
-              bg="bg-purple-50"
-              onClick={() =>
-                router.push("/doctors")
-              }
-            />
-
-            <QuickAction
-              icon="💰"
-              title={
-                isNepali
-                  ? "बिलिङ"
-                  : "Billing"
-              }
-              bg="bg-orange-50"
-            />
-
-          </div>
-
-        </section>
-
-        {/* =================================================
-            REVENUE + QR
-        ================================================== */}
-
-        <section className="grid lg:grid-cols-3 gap-6 mt-8">
-
-          {/* REVENUE */}
-
-          <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-
-            <div className="flex justify-between items-center">
 
               <div>
+                <h1 className="font-bold text-xl">
+                  {settings.clinicName}
+                </h1>
 
-                <h3 className="text-xl font-extrabold text-gray-900">
-                  {isNepali
-                    ? "आजको आम्दानी"
-                    : "Today's Revenue"}
-                </h3>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  {isNepali
-                    ? "डेमो डेटा"
-                    : "Demo data"}
+                <p className="text-xs text-slate-500">
+                  Billing & Prescription
                 </p>
-
               </div>
-
-              <div className="bg-green-50 text-green-600 px-4 py-2 rounded-xl font-bold">
-                +18.5%
-              </div>
-
             </div>
 
-            <div className="mt-7">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={newBill}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+              >
+                + {language === "ne" ? "नयाँ Bill" : "New Bill"}
+              </button>
 
-              <p className="text-4xl font-extrabold text-gray-900">
-                NPR 25,000
-              </p>
+              <button
+                onClick={() => router.push("/settings")}
+                className="px-4 py-2 bg-slate-100 text-slate-800 rounded-lg font-semibold"
+              >
+                ⚙️ Settings
+              </button>
 
-              <p className="text-gray-500 mt-1">
-                {isNepali
-                  ? "आजसम्म"
-                  : "Collected today"}
-              </p>
+              <button
+                onClick={() =>
+                  setLanguage(
+                    language === "en" ? "ne" : "en"
+                  )
+                }
+                className="px-3 py-2 bg-slate-100 rounded-lg font-semibold"
+              >
+                {language === "en" ? "नेपाली" : "English"}
+              </button>
 
+              <button
+                onClick={logout}
+                className="px-4 py-2 bg-red-50 text-red-600 rounded-lg font-semibold"
+              >
+                Logout
+              </button>
             </div>
+          </div>
+        </header>
 
-            <div className="h-40 mt-8 flex items-end gap-3">
+        <div className="max-w-7xl mx-auto p-4 md:p-6">
+          {/* TOP STATS */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <StatCard
+              title={
+                language === "ne"
+                  ? "आजका बिरामी"
+                  : "Today's Patients"
+              }
+              value={records.filter((r) =>
+                r.date.startsWith(
+                  new Date().toLocaleDateString()
+                )
+              ).length}
+              icon="👤"
+            />
 
-              {[
-                35,
-                55,
-                45,
-                70,
-                50,
-                85,
-                65,
-                95,
-                75,
-                100,
-                80,
-                90,
-              ].map(
-                (height, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 bg-gradient-to-t from-blue-600 to-cyan-400 rounded-t-lg"
-                    style={{
-                      height: `${height}%`,
-                    }}
-                  />
+            <StatCard
+              title={
+                language === "ne"
+                  ? "कुल Records"
+                  : "Total Records"
+              }
+              value={records.length}
+              icon="📋"
+            />
+
+            <StatCard
+              title={
+                language === "ne"
+                  ? "कुल Billing"
+                  : "Total Billing"
+              }
+              value={money(
+                records.reduce(
+                  (sum, r) => sum + r.total,
+                  0
                 )
               )}
+              icon="💰"
+            />
 
-            </div>
-
+            <StatCard
+              title={
+                language === "ne"
+                  ? "बाकी रकम"
+                  : "Total Due"
+              }
+              value={money(
+                records.reduce(
+                  (sum, r) => sum + r.due,
+                  0
+                )
+              )}
+              icon="⚠️"
+            />
           </div>
 
-          {/* QR PAYMENT */}
-
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
-
-            <div className="flex justify-between items-center">
-
-              <div>
-
-                <h3 className="text-xl font-extrabold text-gray-900">
-                  QR Payment
-                </h3>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  {isNepali
-                    ? "भुक्तानी QR"
-                    : "Payment QR"}
-                </p>
-
-              </div>
-
-              <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-bold">
-                DEMO
-              </span>
-
+          {message && (
+            <div className="mb-5 bg-green-50 border border-green-200 text-green-700 rounded-xl p-4">
+              {message}
             </div>
+          )}
 
-            {/* REAL QR IMAGE */}
-
-            <div className="mt-5 bg-gray-50 rounded-2xl p-4 flex justify-center">
-
-              <div className="w-48 h-48 bg-white rounded-xl border flex items-center justify-center overflow-hidden">
-
-                <img
-                  src={settings.paymentQR}
-                  alt="Payment QR"
-                  className="w-full h-full object-contain p-2"
+          {/* BILLING AREA */}
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* LEFT / MAIN FORM */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* PATIENT */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <SectionTitle
+                  icon="👤"
+                  title={
+                    language === "ne"
+                      ? "बिरामीको जानकारी"
+                      : "Patient Information"
+                  }
                 />
 
-              </div>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <Input
+                    label={
+                      language === "ne"
+                        ? "बिरामीको नाम *"
+                        : "Patient Name *"
+                    }
+                    value={patientName}
+                    onChange={setPatientName}
+                    placeholder="Full name"
+                  />
 
+                  <Input
+                    label={
+                      language === "ne"
+                        ? "फोन नम्बर"
+                        : "Phone"
+                    }
+                    value={phone}
+                    onChange={setPhone}
+                    placeholder="98XXXXXXXX"
+                  />
+
+                  <Input
+                    label={
+                      language === "ne"
+                        ? "ठेगाना"
+                        : "Address"
+                    }
+                    value={address}
+                    onChange={setAddress}
+                    placeholder="Address"
+                  />
+
+                  <Input
+                    label={
+                      language === "ne"
+                        ? "Doctor"
+                        : "Doctor"
+                    }
+                    value={doctor}
+                    onChange={setDoctor}
+                    placeholder="Doctor name"
+                  />
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      {language === "ne"
+                        ? "समस्या / Diagnosis"
+                        : "Problem / Diagnosis"}
+                    </label>
+
+                    <textarea
+                      value={diagnosis}
+                      onChange={(e) =>
+                        setDiagnosis(e.target.value)
+                      }
+                      rows={2}
+                      className="w-full border border-slate-300 rounded-xl p-3 bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Diagnosis / Dental problem"
+                    />
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      {language === "ne"
+                        ? "Checkup / Treatment Notes"
+                        : "Checkup / Treatment Notes"}
+                    </label>
+
+                    <textarea
+                      value={treatmentNotes}
+                      onChange={(e) =>
+                        setTreatmentNotes(e.target.value)
+                      }
+                      rows={3}
+                      className="w-full border border-slate-300 rounded-xl p-3 bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Treatment details..."
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* CHECKUP */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <SectionTitle
+                  icon="🦷"
+                  title={
+                    language === "ne"
+                      ? "Checkup / Treatment"
+                      : "Checkup / Treatment"
+                  }
+                />
+
+                <div className="mb-5 max-w-xs">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    {language === "ne"
+                      ? "Checkup Fee"
+                      : "Checkup Fee"}
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    value={checkupFee}
+                    onChange={(e) =>
+                      setCheckupFee(
+                        Number(e.target.value)
+                      )
+                    }
+                    className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900"
+                  />
+                </div>
+
+                <ItemTable
+                  title={
+                    language === "ne"
+                      ? "Treatment / Service"
+                      : "Treatment / Service"
+                  }
+                  items={treatmentItems}
+                  onAdd={addTreatment}
+                  onUpdate={updateTreatment}
+                  onRemove={removeTreatment}
+                  language={language}
+                />
+              </section>
+
+              {/* MEDICINES */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <ItemTable
+                  title={
+                    language === "ne"
+                      ? "औषधि / Dental सामान"
+                      : "Medicine / Dental Items"
+                  }
+                  items={medicineItems}
+                  onAdd={addMedicine}
+                  onUpdate={updateMedicine}
+                  onRemove={removeMedicine}
+                  language={language}
+                />
+              </section>
+
+              {/* PRESCRIPTION */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <SectionTitle
+                  icon="💊"
+                  title={
+                    language === "ne"
+                      ? "Prescription / औषधि"
+                      : "Prescription"
+                  }
+                />
+
+                <div className="space-y-4">
+                  {prescription.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="border border-slate-200 rounded-xl p-4"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold text-slate-800">
+                          Medicine #{index + 1}
+                        </h3>
+
+                        {prescription.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removePrescription(
+                                item.id
+                              )
+                            }
+                            className="text-red-500 text-sm font-semibold"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid md:grid-cols-5 gap-3">
+                        <SmallInput
+                          label="Medicine"
+                          value={item.medicine}
+                          onChange={(v) =>
+                            updatePrescription(
+                              item.id,
+                              "medicine",
+                              v
+                            )
+                          }
+                        />
+
+                        <SmallInput
+                          label="Dose"
+                          value={item.dose}
+                          onChange={(v) =>
+                            updatePrescription(
+                              item.id,
+                              "dose",
+                              v
+                            )
+                          }
+                          placeholder="1 tablet"
+                        />
+
+                        <SmallInput
+                          label="Frequency"
+                          value={item.frequency}
+                          onChange={(v) =>
+                            updatePrescription(
+                              item.id,
+                              "frequency",
+                              v
+                            )
+                          }
+                          placeholder="1-0-1"
+                        />
+
+                        <SmallInput
+                          label="Days"
+                          type="number"
+                          value={item.days}
+                          onChange={(v) =>
+                            updatePrescription(
+                              item.id,
+                              "days",
+                              Number(v)
+                            )
+                          }
+                        />
+
+                        <SmallInput
+                          label="Instruction"
+                          value={item.instruction}
+                          onChange={(v) =>
+                            updatePrescription(
+                              item.id,
+                              "instruction",
+                              v
+                            )
+                          }
+                          placeholder="After food"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-3 mt-5">
+                  <button
+                    type="button"
+                    onClick={addPrescription}
+                    className="px-4 py-2 bg-slate-100 rounded-lg font-semibold"
+                  >
+                    + Add Medicine
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={printCurrentPrescription}
+                    className="px-5 py-2 bg-purple-600 text-white rounded-lg font-semibold"
+                  >
+                    🖨️ Print Prescription
+                  </button>
+                </div>
+              </section>
             </div>
 
-            <button
-              type="button"
-              className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition"
-            >
-              {isNepali
-                ? "भुक्तानी थप्नुहोस्"
-                : "Add Payment"}
-            </button>
+            {/* RIGHT SIDE */}
+            <div className="space-y-6">
+              {/* TOTAL */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sticky top-24">
+                <SectionTitle
+                  icon="💰"
+                  title={
+                    language === "ne"
+                      ? "Billing Summary"
+                      : "Billing Summary"
+                  }
+                />
 
-          </div>
+                <div className="space-y-3 text-sm">
+                  <SummaryRow
+                    label="Checkup"
+                    value={checkupFee}
+                  />
 
-        </section>
+                  <SummaryRow
+                    label="Treatment"
+                    value={treatmentTotal}
+                  />
 
-        {/* =================================================
-            TREATMENTS
-        ================================================== */}
+                  <SummaryRow
+                    label="Medicine / Items"
+                    value={medicineTotal}
+                  />
 
-        <section className="mt-8">
+                  <div className="border-t pt-3">
+                    <SummaryRow
+                      label="Subtotal"
+                      value={subtotal}
+                      bold
+                    />
+                  </div>
 
-          <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Discount
+                    </label>
 
-            <div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={discount}
+                      onChange={(e) =>
+                        setDiscount(
+                          Number(e.target.value)
+                        )
+                      }
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-900"
+                    />
+                  </div>
 
-              <h3 className="text-xl font-extrabold text-gray-900">
-                {isNepali
-                  ? "दन्त उपचारहरू"
-                  : "Dental Treatments"}
-              </h3>
+                  <div className="border-t pt-3">
+                    <SummaryRow
+                      label="TOTAL"
+                      value={total}
+                      big
+                    />
+                  </div>
 
-              <p className="text-sm text-gray-500">
-                {isNepali
-                  ? "क्लिनिकमा उपलब्ध प्रमुख उपचारहरू"
-                  : "Popular treatments at the clinic"}
-              </p>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Paid
+                    </label>
 
+                    <input
+                      type="number"
+                      min="0"
+                      value={paid}
+                      onChange={(e) =>
+                        setPaid(
+                          Number(e.target.value)
+                        )
+                      }
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Payment Method
+                    </label>
+
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) =>
+                        setPaymentMethod(
+                          e.target.value
+                        )
+                      }
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white text-slate-900"
+                    >
+                      <option>Cash</option>
+                      <option>eSewa</option>
+                      <option>Khalti</option>
+                      <option>Fonepay</option>
+                      <option>Bank</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-red-700">
+                        Due
+                      </span>
+
+                      <span className="font-bold text-red-700 text-lg">
+                        {money(due)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={saveBill}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-bold"
+                  >
+                    💾 Save Bill
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={saveAndPrintBill}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white rounded-xl py-3 font-bold"
+                  >
+                    💾🖨️ Save & Print Bill
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={printCurrentBill}
+                    className="w-full bg-slate-800 hover:bg-slate-900 text-white rounded-xl py-3 font-bold"
+                  >
+                    🖨️ Print Bill
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={newBill}
+                    className="w-full bg-slate-100 text-slate-800 rounded-xl py-3 font-bold"
+                  >
+                    + New Bill
+                  </button>
+                </div>
+              </section>
+
+              {/* SEARCH HISTORY */}
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <SectionTitle
+                  icon="📋"
+                  title={
+                    language === "ne"
+                      ? "पुराना Patient / Bill"
+                      : "Previous Patients / Bills"
+                  }
+                />
+
+                <input
+                  value={search}
+                  onChange={(e) =>
+                    setSearch(e.target.value)
+                  }
+                  placeholder={
+                    language === "ne"
+                      ? "नाम, फोन वा Bill No. खोज्नुहोस्..."
+                      : "Search name, phone or bill no..."
+                  }
+                  className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 mb-4"
+                />
+
+                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                  {filteredRecords.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400">
+                      No records found
+                    </div>
+                  ) : (
+                    filteredRecords.map((record) => (
+                      <div
+                        key={record.id}
+                        className="border border-slate-200 rounded-xl p-4"
+                      >
+                        <div className="flex justify-between gap-3">
+                          <div>
+                            <h3 className="font-bold">
+                              {record.patientName}
+                            </h3>
+
+                            <p className="text-xs text-slate-500">
+                              {record.phone}
+                            </p>
+
+                            <p className="text-xs text-slate-500">
+                              {record.billNo}
+                            </p>
+
+                            <p className="text-xs text-slate-400 mt-1">
+                              {record.date}
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="font-bold">
+                              {money(record.total)}
+                            </div>
+
+                            {record.due > 0 && (
+                              <div className="text-xs text-red-600">
+                                Due: {money(record.due)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <button
+                            onClick={() =>
+                              loadRecord(record)
+                            }
+                            className="px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-semibold"
+                          >
+                            Open
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setPrintRecord(record);
+                              setPrintType("bill");
+                            }}
+                            className="px-3 py-2 bg-slate-100 rounded-lg text-sm font-semibold"
+                          >
+                            🖨 Bill
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setPrintRecord(record);
+                              setPrintType(
+                                "prescription"
+                              );
+                            }}
+                            className="px-3 py-2 bg-purple-50 text-purple-700 rounded-lg text-sm font-semibold"
+                          >
+                            🖨 Rx
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
             </div>
-
           </div>
+        </div>
+      </main>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-
-            <TreatmentCard
-              emoji="🦷"
-              title="Dental Checkup"
-              description="Complete dental examination"
-              image="https://images.unsplash.com/photo-1606811971618-4486d14f3f99?auto=format&fit=crop&w=900&q=80"
+      {/* PRINT AREA */}
+      {printRecord && printType && (
+        <div id="print-area">
+          {printType === "bill" ? (
+            <PrintableBill
+              record={printRecord}
+              settings={settings}
             />
-
-            <TreatmentCard
-              emoji="✨"
-              title="Teeth Cleaning"
-              description="Professional teeth cleaning"
-              image="https://images.unsplash.com/photo-1609840114035-3c981b782dfe?auto=format&fit=crop&w=900&q=80"
+          ) : (
+            <PrintablePrescription
+              record={printRecord}
+              settings={settings}
             />
+          )}
+        </div>
+      )}
 
-            <TreatmentCard
-              emoji="🦷"
-              title="Root Canal"
-              description="Advanced root canal treatment"
-              image="https://images.unsplash.com/photo-1609840114035-3c981b782dfe?auto=format&fit=crop&w=900&q=80"
-            />
+      <style jsx global>{`
+        * {
+          box-sizing: border-box;
+        }
 
-            <TreatmentCard
-              emoji="😁"
-              title="Dental Braces"
-              description="Modern orthodontic treatment"
-              image="https://images.unsplash.com/photo-1588776814546-daab30f310ce?auto=format&fit=crop&w=900&q=80"
-            />
+        input,
+        textarea,
+        select {
+          color: #0f172a !important;
+          background-color: #ffffff !important;
+        }
 
-          </div>
+        input::placeholder,
+        textarea::placeholder {
+          color: #64748b !important;
+          opacity: 1;
+        }
 
-        </section>
+        @media print {
+          body {
+            background: white !important;
+          }
 
-        {/* =================================================
-            APPOINTMENTS + PATIENTS
-        ================================================== */}
+          body > * {
+            visibility: hidden !important;
+          }
 
-        <section className="grid lg:grid-cols-2 gap-6 mt-8">
+          #print-area,
+          #print-area * {
+            visibility: visible !important;
+          }
 
-          {/* APPOINTMENTS */}
+          #print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+          }
 
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
 
-            <div className="flex justify-between items-center">
-
-              <div>
-
-                <h3 className="text-xl font-extrabold">
-                  {isNepali
-                    ? "आजका अपोइन्टमेन्टहरू"
-                    : "Today's Appointments"}
-                </h3>
-
-                <p className="text-sm text-gray-500 mt-1">
-                  {isNepali
-                    ? "आजको बिरामी तालिका"
-                    : "Today's patient schedule"}
-                </p>
-
-              </div>
-
-              <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-sm font-bold">
-                14
-              </span>
-
-            </div>
-
-            <div className="mt-5 space-y-3">
-
-              <Appointment
-                time="09:30 AM"
-                patient="Ram Sharma"
-                treatment="Dental Checkup"
-              />
-
-              <Appointment
-                time="11:00 AM"
-                patient="Sita BK"
-                treatment="Root Canal"
-              />
-
-              <Appointment
-                time="01:30 PM"
-                patient="Hari Thapa"
-                treatment="Teeth Cleaning"
-              />
-
-            </div>
-
-          </div>
-
-          {/* RECENT PATIENTS */}
-
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
-
-            <h3 className="text-xl font-extrabold">
-              {isNepali
-                ? "हालका बिरामीहरू"
-                : "Recent Patients"}
-            </h3>
-
-            <div className="mt-5 space-y-3">
-
-              <PatientRow
-                name="Ram Sharma"
-                treatment="Dental Checkup"
-              />
-
-              <PatientRow
-                name="Sita BK"
-                treatment="Root Canal"
-              />
-
-              <PatientRow
-                name="Hari Thapa"
-                treatment="Cleaning"
-              />
-
-              <PatientRow
-                name="Gita Gurung"
-                treatment="Braces"
-              />
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* FOOTER */}
-
-        <footer className="text-center py-8 text-sm text-gray-400">
-          © 2026 {settings.clinicName} • Dental Clinic Management System
-        </footer>
-
-      </div>
-
-    </main>
-  );
-}
-
-/* =====================================================
-   HERO STAT
-====================================================== */
-
-function HeroStat({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
-  return (
-    <div className="bg-white/10 border border-white/10 rounded-2xl p-4">
-
-      <p className="text-xs md:text-sm text-blue-100">
-        {title}
-      </p>
-
-      <p className="text-2xl md:text-3xl font-extrabold mt-1">
-        {value}
-      </p>
-
-    </div>
-  );
-}
-
-/* =====================================================
-   DASHBOARD CARD
-====================================================== */
-
-function DashboardCard({
-  title,
-  value,
-  icon,
-  bg,
-  iconBg,
-  iconColor,
-  onClick,
-}: {
-  title: string;
-  value: string;
-  icon: string;
-  bg: string;
-  iconBg: string;
-  iconColor: string;
-  onClick?: () => void;
-}) {
-  const content = (
-    <>
-      <div
-        className={`w-14 h-14 ${iconBg} rounded-2xl flex items-center justify-center text-3xl`}
-      >
-        {icon}
-      </div>
-
-      <p className="text-sm font-semibold text-gray-500 mt-5">
-        {title}
-      </p>
-
-      <p
-        className={`text-3xl font-extrabold ${iconColor} mt-1`}
-      >
-        {value}
-      </p>
-
-      <p className="text-xs text-gray-400 mt-2">
-        View details →
-      </p>
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </>
   );
+}
 
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={`${bg} rounded-3xl p-6 border border-white shadow-sm hover:shadow-xl hover:-translate-y-1 transition text-left w-full`}
-      >
-        {content}
-      </button>
-    );
-  }
+/* =========================================================
+   COMPONENTS
+========================================================= */
 
+function StatCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  icon: string;
+}) {
   return (
-    <div
-      className={`${bg} rounded-3xl p-6 border border-white shadow-sm hover:shadow-xl hover:-translate-y-1 transition`}
-    >
-      {content}
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-500">
+            {title}
+          </p>
+
+          <h2 className="text-2xl font-bold mt-2 text-slate-900">
+            {value}
+          </h2>
+        </div>
+
+        <div className="text-3xl">
+          {icon}
+        </div>
+      </div>
     </div>
   );
 }
 
-/* =====================================================
-   QUICK ACTION
-====================================================== */
-
-function QuickAction({
+function SectionTitle({
   icon,
   title,
-  bg,
-  onClick,
 }: {
   icon: string;
   title: string;
-  bg: string;
-  onClick?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`${bg} rounded-2xl p-5 text-left border border-white shadow-sm hover:shadow-lg hover:-translate-y-1 transition`}
-    >
-
-      <div className="text-3xl">
+    <div className="flex items-center gap-3 mb-5">
+      <div className="text-2xl">
         {icon}
       </div>
 
-      <p className="font-bold text-gray-800 mt-3">
+      <h2 className="text-xl font-bold text-slate-900">
         {title}
-      </p>
-
-      <p className="text-xs text-gray-500 mt-1">
-        Open →
-      </p>
-
-    </button>
+      </h2>
+    </div>
   );
 }
 
-/* =====================================================
-   TREATMENT CARD
-====================================================== */
-
-function TreatmentCard({
-  emoji,
-  title,
-  description,
-  image,
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
 }: {
-  emoji: string;
-  title: string;
-  description: string;
-  image: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
-    <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition">
+    <div>
+      <label className="block text-sm font-semibold text-slate-700 mb-2">
+        {label}
+      </label>
 
-      <div className="h-44 overflow-hidden bg-gray-100">
+      <input
+        value={value}
+        onChange={(e) =>
+          onChange(e.target.value)
+        }
+        placeholder={placeholder}
+        className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  );
+}
 
+function SmallInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        {label}
+      </label>
+
+      <input
+        type={type}
+        value={value}
+        onChange={(e) =>
+          onChange(e.target.value)
+        }
+        placeholder={placeholder}
+        className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900 text-sm"
+      />
+    </div>
+  );
+}
+
+function ItemTable({
+  title,
+  items,
+  onAdd,
+  onUpdate,
+  onRemove,
+  language,
+}: {
+  title: string;
+  items: BillItem[];
+  onAdd: () => void;
+  onUpdate: (
+    id: number,
+    field: keyof BillItem,
+    value: string | number
+  ) => void;
+  onRemove: (id: number) => void;
+  language: Language;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-slate-800">
+          {title}
+        </h3>
+
+        <button
+          type="button"
+          onClick={onAdd}
+          className="px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-semibold"
+        >
+          + {language === "ne" ? "थप्नुहोस्" : "Add"}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item, index) => {
+          const lineTotal =
+            Number(item.qty || 0) *
+            Number(item.price || 0);
+
+          return (
+            <div
+              key={item.id}
+              className="grid grid-cols-12 gap-2 items-end"
+            >
+              <div className="col-span-5">
+                <label className="text-xs text-slate-500">
+                  Item
+                </label>
+
+                <input
+                  value={item.name}
+                  onChange={(e) =>
+                    onUpdate(
+                      item.id,
+                      "name",
+                      e.target.value
+                    )
+                  }
+                  placeholder={
+                    language === "ne"
+                      ? `सामान ${index + 1}`
+                      : `Item ${index + 1}`
+                  }
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-xs text-slate-500">
+                  Qty
+                </label>
+
+                <input
+                  type="number"
+                  min="1"
+                  value={item.qty}
+                  onChange={(e) =>
+                    onUpdate(
+                      item.id,
+                      "qty",
+                      Number(e.target.value)
+                    )
+                  }
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-xs text-slate-500">
+                  Price
+                </label>
+
+                <input
+                  type="number"
+                  min="0"
+                  value={item.price}
+                  onChange={(e) =>
+                    onUpdate(
+                      item.id,
+                      "price",
+                      Number(e.target.value)
+                    )
+                  }
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-900"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="text-xs text-slate-500">
+                  Total
+                </label>
+
+                <div className="px-3 py-2 bg-slate-100 rounded-lg font-semibold text-sm">
+                  Rs.{" "}
+                  {lineTotal.toLocaleString()}
+                </div>
+              </div>
+
+              <div className="col-span-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onRemove(item.id)
+                  }
+                  className="w-full px-2 py-2 bg-red-50 text-red-600 rounded-lg"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  bold = false,
+  big = false,
+}: {
+  label: string;
+  value: number;
+  bold?: boolean;
+  big?: boolean;
+}) {
+  return (
+    <div
+      className={`flex justify-between items-center ${
+        bold ? "font-bold" : ""
+      } ${big ? "text-xl" : ""}`}
+    >
+      <span>{label}</span>
+
+      <span>
+        Rs. {Number(value || 0).toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
+/* =========================================================
+   PRINT BILL
+========================================================= */
+
+function PrintableBill({
+  record,
+  settings,
+}: {
+  record: DentalRecord;
+  settings: ClinicSettings;
+}) {
+  return (
+    <div className="max-w-[800px] mx-auto bg-white text-black p-8">
+      <div className="text-center border-b-2 border-black pb-5">
         <img
-          src={image}
-          alt={title}
-          className="w-full h-full object-cover hover:scale-105 transition duration-500"
+          src={settings.logo || "/logo.png"}
+          alt="Logo"
+          className="h-20 mx-auto object-contain mb-2"
         />
 
+        <h1 className="text-3xl font-bold">
+          {settings.clinicName}
+        </h1>
+
+        <p>{settings.address}</p>
+        <p>{settings.phone}</p>
       </div>
 
-      <div className="p-5">
+      <div className="flex justify-between mt-6 text-sm">
+        <div>
+          <p>
+            <strong>Patient:</strong>{" "}
+            {record.patientName}
+          </p>
 
-        <div className="text-2xl">
-          {emoji}
+          <p>
+            <strong>Address:</strong>{" "}
+            {record.address || "-"}
+          </p>
+
+          <p>
+            <strong>Phone:</strong>{" "}
+            {record.phone || "-"}
+          </p>
+
+          <p>
+            <strong>Doctor:</strong>{" "}
+            {record.doctor}
+          </p>
         </div>
 
-        <h4 className="font-extrabold text-lg mt-2">
-          {title}
-        </h4>
+        <div className="text-right">
+          <p>
+            <strong>Bill No:</strong>{" "}
+            {record.billNo}
+          </p>
 
-        <p className="text-sm text-gray-500 mt-1">
-          {description}
-        </p>
-
+          <p>
+            <strong>Date:</strong>{" "}
+            {record.date}
+          </p>
+        </div>
       </div>
 
+      <div className="mt-8">
+        <h2 className="text-xl font-bold border-b pb-2 mb-3">
+          PAYMENT RECEIPT
+        </h2>
+
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="border p-2 text-left">
+                Description
+              </th>
+
+              <th className="border p-2">
+                Qty
+              </th>
+
+              <th className="border p-2 text-right">
+                Price
+              </th>
+
+              <th className="border p-2 text-right">
+                Total
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr>
+              <td className="border p-2">
+                Checkup Fee
+              </td>
+
+              <td className="border p-2 text-center">
+                1
+              </td>
+
+              <td className="border p-2 text-right">
+                Rs.{" "}
+                {record.checkupFee.toLocaleString()}
+              </td>
+
+              <td className="border p-2 text-right">
+                Rs.{" "}
+                {record.checkupFee.toLocaleString()}
+              </td>
+            </tr>
+
+            {record.treatmentItems.map(
+              (item) => (
+                <tr key={item.id}>
+                  <td className="border p-2">
+                    {item.name}
+                  </td>
+
+                  <td className="border p-2 text-center">
+                    {item.qty}
+                  </td>
+
+                  <td className="border p-2 text-right">
+                    Rs.{" "}
+                    {item.price.toLocaleString()}
+                  </td>
+
+                  <td className="border p-2 text-right">
+                    Rs.{" "}
+                    {(
+                      item.qty * item.price
+                    ).toLocaleString()}
+                  </td>
+                </tr>
+              )
+            )}
+
+            {record.medicineItems.map(
+              (item) => (
+                <tr key={item.id}>
+                  <td className="border p-2">
+                    {item.name}
+                  </td>
+
+                  <td className="border p-2 text-center">
+                    {item.qty}
+                  </td>
+
+                  <td className="border p-2 text-right">
+                    Rs.{" "}
+                    {item.price.toLocaleString()}
+                  </td>
+
+                  <td className="border p-2 text-right">
+                    Rs.{" "}
+                    {(
+                      item.qty * item.price
+                    ).toLocaleString()}
+                  </td>
+                </tr>
+              )
+            )}
+          </tbody>
+        </table>
+
+        <div className="ml-auto w-72 mt-5 space-y-2">
+          <SummaryPrint
+            label="Subtotal"
+            value={record.subtotal}
+          />
+
+          <SummaryPrint
+            label="Discount"
+            value={record.discount}
+          />
+
+          <div className="border-t border-black pt-2">
+            <SummaryPrint
+              label="TOTAL"
+              value={record.total}
+              bold
+            />
+          </div>
+
+          <SummaryPrint
+            label="Paid"
+            value={record.paid}
+          />
+
+          <SummaryPrint
+            label="Due"
+            value={record.due}
+            bold
+          />
+        </div>
+      </div>
+
+      {record.diagnosis && (
+        <div className="mt-8">
+          <strong>Diagnosis:</strong>
+          <p className="mt-1">
+            {record.diagnosis}
+          </p>
+        </div>
+      )}
+
+      {record.treatmentNotes && (
+        <div className="mt-4">
+          <strong>Treatment Notes:</strong>
+          <p className="mt-1">
+            {record.treatmentNotes}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-12 text-center border-t pt-5">
+        <p>{settings.receiptFooter}</p>
+
+        <div className="mt-10 flex justify-between text-sm">
+          <span>
+            Patient Signature
+          </span>
+
+          <span>
+            Authorized Signature
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
-/* =====================================================
-   APPOINTMENT
-====================================================== */
+/* =========================================================
+   PRINT PRESCRIPTION
+========================================================= */
 
-function Appointment({
-  time,
-  patient,
-  treatment,
+function PrintablePrescription({
+  record,
+  settings,
 }: {
-  time: string;
-  patient: string;
-  treatment: string;
+  record: DentalRecord;
+  settings: ClinicSettings;
 }) {
   return (
-    <div className="flex items-center gap-4 bg-slate-50 rounded-2xl p-4">
+    <div className="max-w-[800px] mx-auto bg-white text-black p-8">
+      <div className="text-center border-b-2 border-black pb-5">
+        <img
+          src={settings.logo || "/logo.png"}
+          alt="Logo"
+          className="h-20 mx-auto object-contain mb-2"
+        />
 
-      <div className="bg-blue-100 text-blue-700 rounded-xl px-3 py-2 text-sm font-bold">
-        {time}
+        <h1 className="text-3xl font-bold">
+          {settings.clinicName}
+        </h1>
+
+        <p>{settings.address}</p>
+        <p>{settings.phone}</p>
       </div>
 
-      <div className="flex-1">
+      <div className="flex justify-between mt-6">
+        <div>
+          <p>
+            <strong>Patient:</strong>{" "}
+            {record.patientName}
+          </p>
 
-        <p className="font-bold text-gray-800">
-          {patient}
-        </p>
+          <p>
+            <strong>Address:</strong>{" "}
+            {record.address || "-"}
+          </p>
 
-        <p className="text-xs text-gray-500">
-          {treatment}
-        </p>
+          <p>
+            <strong>Phone:</strong>{" "}
+            {record.phone || "-"}
+          </p>
+        </div>
 
+        <div className="text-right">
+          <p>
+            <strong>Date:</strong>{" "}
+            {record.date}
+          </p>
+
+          <p>
+            <strong>Doctor:</strong>{" "}
+            {record.doctor}
+          </p>
+        </div>
       </div>
 
-      <span className="w-3 h-3 bg-green-500 rounded-full" />
+      <div className="mt-10">
+        <div className="text-5xl font-serif mb-5">
+          ℞
+        </div>
 
+        {record.diagnosis && (
+          <div className="mb-5">
+            <strong>Diagnosis:</strong>{" "}
+            {record.diagnosis}
+          </div>
+        )}
+
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              <th className="border p-3 text-left">
+                Medicine
+              </th>
+
+              <th className="border p-3 text-left">
+                Dose
+              </th>
+
+              <th className="border p-3 text-left">
+                Frequency
+              </th>
+
+              <th className="border p-3 text-left">
+                Days
+              </th>
+
+              <th className="border p-3 text-left">
+                Instruction
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {record.prescription.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="border p-5 text-center"
+                >
+                  No medicine prescribed.
+                </td>
+              </tr>
+            ) : (
+              record.prescription.map(
+                (item) => (
+                  <tr key={item.id}>
+                    <td className="border p-3">
+                      {item.medicine}
+                    </td>
+
+                    <td className="border p-3">
+                      {item.dose}
+                    </td>
+
+                    <td className="border p-3">
+                      {item.frequency}
+                    </td>
+
+                    <td className="border p-3">
+                      {item.days}
+                    </td>
+
+                    <td className="border p-3">
+                      {item.instruction}
+                    </td>
+                  </tr>
+                )
+              )
+            )}
+          </tbody>
+        </table>
+
+        {record.treatmentNotes && (
+          <div className="mt-8">
+            <strong>Instructions / Notes:</strong>
+
+            <p className="mt-2 whitespace-pre-wrap">
+              {record.treatmentNotes}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-20 flex justify-between">
+        <div className="text-center">
+          <div className="w-40 border-b border-black mb-2" />
+          <p className="text-sm">
+            Patient
+          </p>
+        </div>
+
+        <div className="text-center">
+          <div className="w-40 border-b border-black mb-2" />
+          <p className="text-sm">
+            Dr. {record.doctor}
+          </p>
+        </div>
+      </div>
+
+      <div className="text-center mt-10 text-sm">
+        {settings.receiptFooter}
+      </div>
     </div>
   );
 }
 
-/* =====================================================
-   PATIENT ROW
-====================================================== */
-
-function PatientRow({
-  name,
-  treatment,
+function SummaryPrint({
+  label,
+  value,
+  bold = false,
 }: {
-  name: string;
-  treatment: string;
+  label: string;
+  value: number;
+  bold?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-4 bg-slate-50 rounded-2xl p-4">
+    <div
+      className={`flex justify-between ${
+        bold ? "font-bold text-lg" : ""
+      }`}
+    >
+      <span>{label}</span>
 
-      <div className="w-11 h-11 rounded-full bg-blue-100 flex items-center justify-center text-xl">
-        👤
-      </div>
-
-      <div className="flex-1">
-
-        <p className="font-bold text-gray-800">
-          {name}
-        </p>
-
-        <p className="text-xs text-gray-500">
-          {treatment}
-        </p>
-
-      </div>
-
-      <span className="text-green-600 text-xs font-bold">
-        Active
+      <span>
+        Rs. {Number(value).toLocaleString()}
       </span>
-
     </div>
   );
 }
