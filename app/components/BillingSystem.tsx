@@ -1114,11 +1114,26 @@ export default function BillingSystem({ view = "dashboard" }: { view?: BillingVi
               icon="⚠️"
             />
           </div>
-
+{/* DASHBOARD HOME PHOTO */}
+<div className="mt-6 bg-white rounded-2xl shadow p-4">
+  <img
+    src="/pokhara.jpg"
+    alt="Pokhara"
+    className="w-full h-150 object-cover rounded-xl"
+  />
+</div>
             </>
           )}
           {view === "preview" && (
             <>
+          {/* DASHBOARD PHOTO */}
+<div className="mt-6 bg-white rounded-2xl shadow p-4">
+  <img
+    src="https://images.unsplash.com/photo-1544735716-392fe2489ffa"
+    alt="Pokhara"
+    className="w-full h-80 object-cover rounded-xl"
+  />
+</div>
           {/* BILL PREVIEW DASHBOARD */}
           <section id="bill-preview-dashboard" className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
